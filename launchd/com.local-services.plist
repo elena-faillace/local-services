@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.local-services</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/supervisord</string>
+    <string>-c</string>
+    <string>/Users/elenafaillace/Documents/all_code/local-services/supervisord.conf</string>
+    <string>-n</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/Users/elenafaillace/Library/Logs/supervisor/launchd.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/elenafaillace/Library/Logs/supervisor/launchd.error.log</string>
+</dict>
+</plist>
