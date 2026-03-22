@@ -9,25 +9,54 @@ local-services/
 ├── supervisord.conf          # Main supervisord daemon config
 ├── conf.d/
 │   └── bookmark-processor.conf  # One file per managed service
-├── launchd/
-│   └── com.local-services.plist # Single launchd entry that boots supervisord
+├── install.sh                # One-time setup script
 └── README.md
 ```
 
 ## One-time setup
 
+### 1. Install Supervisor
+
 ```bash
-# 1. Install Supervisor
 brew install supervisor
+```
 
-# 2. Run the install script (creates log dir, generates the launchd plist, loads it)
+### 2. Run the install script
+
+```bash
+cd /path/to/local-services
+chmod +x install.sh
 ./install.sh
+```
 
-# 3. Verify supervisord started and services are running
+This will:
+- Create the log directory at `~/Library/Logs/supervisor/`
+- Generate `~/Library/LaunchAgents/com.local-services.plist` with your actual paths (not committed to the repo)
+- Load the launchd agent so Supervisor starts now and auto-starts at every login
+
+### 3. Add the supervisorctl alias
+
+By default, `supervisorctl` connects to the Homebrew-managed socket, not this repo's config. Add an alias to your shell config (`~/.zshrc` or `~/.bashrc`):
+
+```bash
+alias supervisorctl='supervisorctl -c ~/Documents/all_code/local-services/supervisord.conf'
+```
+
+Then reload your shell:
+
+```bash
+source ~/.zshrc
+```
+
+### 4. Verify everything is running
+
+```bash
 supervisorctl status
 ```
 
-The install script generates `~/Library/LaunchAgents/com.local-services.plist` with your actual paths — this file is not committed to the repo.
+You should see `bookmark-processor` with status `RUNNING`.
+
+---
 
 ## Day-to-day usage
 
@@ -42,20 +71,27 @@ supervisorctl restart bookmark-processor
 
 # View live logs
 tail -f ~/Library/Logs/supervisor/bookmark-processor.log
+tail -f ~/Library/Logs/supervisor/bookmark-processor.error.log
 ```
+
+---
 
 ## Adding a new service
 
 1. Create `conf.d/my-app.conf` following the same pattern as `bookmark-processor.conf`
-2. Tell Supervisor to pick it up (no restart needed):
+2. Pick it up without restarting Supervisor:
 
 ```bash
 supervisorctl reread && supervisorctl update
 ```
 
-That's it — no new launchd plists required.
+No new launchd plists required.
 
 ## Removing a service
 
 1. Delete its `conf.d/*.conf` file
-2. Run `supervisorctl reread && supervisorctl update`
+2. Run:
+
+```bash
+supervisorctl reread && supervisorctl update
+```
