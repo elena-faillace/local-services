@@ -20,6 +20,7 @@ mkdir -p "$HOME/Library/Logs/supervisor"
 echo "Created log directory: $HOME/Library/Logs/supervisor"
 
 # 3. Generate the launchd plist with real paths
+mkdir -p "$HOME/Library/LaunchAgents"
 cat > "$PLIST_DEST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
@@ -54,6 +55,26 @@ if launchctl list | grep -q "$PLIST_LABEL"; then
 fi
 launchctl load "$PLIST_DEST"
 echo "Loaded launchd agent: $PLIST_LABEL"
+
+# 5. Generate conf.d files from templates
+DEFAULT_SERVICE_DIR="$HOME/Documents/all_code/bookmark-content-processor"
+echo ""
+echo "Where is bookmark-content-processor checked out?"
+echo "Press Enter to accept the default: $DEFAULT_SERVICE_DIR"
+read -r -p "Path: " SERVICE_DIR
+SERVICE_DIR="${SERVICE_DIR:-$DEFAULT_SERVICE_DIR}"
+
+if [ ! -d "$SERVICE_DIR" ]; then
+  echo "Error: directory not found: $SERVICE_DIR"
+  echo "Supervisor is running but bookmark-processor is not configured."
+  echo "Re-run this script once the repo is cloned to finish setup."
+  exit 1
+fi
+
+sed "s|{{SERVICE_DIR}}|$SERVICE_DIR|g" \
+  "$REPO_DIR/conf.d/bookmark-processor.conf.template" \
+  > "$REPO_DIR/conf.d/bookmark-processor.conf"
+echo "Generated conf.d/bookmark-processor.conf"
 
 echo ""
 echo "Done. Check service status with: supervisorctl status"
