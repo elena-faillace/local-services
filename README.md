@@ -20,16 +20,14 @@ local-services/
 # 1. Install Supervisor
 brew install supervisor
 
-# 2. Create log directory
-mkdir -p ~/Library/Logs/supervisor
+# 2. Run the install script (creates log dir, generates the launchd plist, loads it)
+./install.sh
 
-# 3. Copy the launchd plist and load it
-cp launchd/com.local-services.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.local-services.plist
-
-# 4. Verify supervisord started and services are running
+# 3. Verify supervisord started and services are running
 supervisorctl status
 ```
+
+The install script generates `~/Library/LaunchAgents/com.local-services.plist` with your actual paths — this file is not committed to the repo.
 
 ## Day-to-day usage
 
