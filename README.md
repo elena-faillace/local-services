@@ -17,10 +17,10 @@ local-services/
 
 ## One-time setup
 
-### 1. Install Supervisor
+### 1. Install dependencies
 
 ```bash
-brew install supervisor
+brew install supervisor uv
 ```
 
 ### 2. Run the install script
@@ -32,24 +32,16 @@ chmod +x install.sh
 ```
 
 This will:
-- Prompt for the path to `bookmark-content-processor` on your machine (press Enter to accept the default)
-- Generate `conf.d/bookmark-processor.conf` with your local path substituted in
-- Create the log directory at `~/Library/Logs/supervisor/`
-- Generate `~/Library/LaunchAgents/com.local-services.plist` with your actual paths
-- Load the launchd agent so Supervisor starts now and auto-starts at every login
+- Verify `supervisord` and `uv` are installed
+- Create log and socket directories
+- Generate `~/Library/LaunchAgents/com.local-services.plist` with your actual paths and load it (Supervisor starts now and auto-starts at every login)
+- Add a `supervisorctl` alias to your shell rc file (`.zshrc` or `.bash_profile`) so it uses this repo's config automatically
+- Prompt for the path to `bookmark-content-processor` and generate `conf.d/bookmark-processor.conf`
 
-### 3. Add the supervisorctl alias
-
-By default, `supervisorctl` connects to the Homebrew-managed socket, not this repo's config. Add an alias to your shell config (`~/.zshrc` or `~/.bashrc`):
+### 3. Reload your shell
 
 ```bash
-alias supervisorctl='supervisorctl -c ~/Documents/all_code/local-services/supervisord.conf'
-```
-
-Then reload your shell:
-
-```bash
-source ~/.zshrc
+source ~/.zshrc   # or ~/.bash_profile if using bash
 ```
 
 ### 4. Verify everything is running
@@ -68,12 +60,22 @@ You should see `bookmark-processor` with status `RUNNING`.
 # Check status of all services
 supervisorctl status
 
-# Stop / start / restart a service
-supervisorctl stop bookmark-processor
+# Start a service
 supervisorctl start bookmark-processor
+
+# Stop a service (does not restart automatically until you start it again)
+supervisorctl stop bookmark-processor
+
+# Restart a service (stop + start in one command)
 supervisorctl restart bookmark-processor
 
-# View live logs
+# Send a signal to a process (e.g. SIGINT to trigger a graceful shutdown)
+supervisorctl signal INT bookmark-processor
+
+# Stop all services at once
+supervisorctl stop all
+
+# View live stdout/stderr logs
 tail -f ~/Library/Logs/supervisor/bookmark-processor.log
 tail -f ~/Library/Logs/supervisor/bookmark-processor.error.log
 ```

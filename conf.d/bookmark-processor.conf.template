@@ -1,5 +1,5 @@
 [program:bookmark-processor]
-command=%(ENV_HOME)s/.local/bin/uv run uvicorn app.api:app --port 8484
+command={{UV_BIN}} run uvicorn app.api:app --port 8484
 directory={{SERVICE_DIR}}
 autostart=true
 autorestart=true

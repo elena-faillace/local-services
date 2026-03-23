@@ -12,14 +12,21 @@ if ! command -v supervisord &>/dev/null; then
   echo "Error: supervisord not found. Install it first: brew install supervisor"
   exit 1
 fi
-
 SUPERVISORD_BIN="$(command -v supervisord)"
 
-# 2. Create log directory
-mkdir -p "$HOME/Library/Logs/supervisor"
-echo "Created log directory: $HOME/Library/Logs/supervisor"
+# 2. Require uv to be installed
+if ! command -v uv &>/dev/null; then
+  echo "Error: uv not found. Install it first: brew install uv"
+  exit 1
+fi
+UV_BIN="$(command -v uv)"
 
-# 3. Generate the launchd plist with real paths
+# 3. Create required directories
+mkdir -p "$HOME/Library/Logs/supervisor"
+mkdir -p "$HOME/.supervisor"
+echo "Created log and socket directories"
+
+# 4. Generate the launchd plist with real paths
 mkdir -p "$HOME/Library/LaunchAgents"
 cat > "$PLIST_DEST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -49,14 +56,33 @@ cat > "$PLIST_DEST" <<EOF
 EOF
 echo "Generated plist: $PLIST_DEST"
 
-# 4. Load (or reload) the launchd agent
+# 5. Load (or reload) the launchd agent
 if launchctl list | grep -q "$PLIST_LABEL"; then
   launchctl unload "$PLIST_DEST"
 fi
 launchctl load "$PLIST_DEST"
 echo "Loaded launchd agent: $PLIST_LABEL"
 
-# 5. Generate conf.d files from templates
+# 6. Add supervisorctl alias to shell rc file
+ALIAS_LINE="alias supervisorctl='supervisorctl -c $REPO_DIR/supervisord.conf'"
+case "$SHELL" in
+  */zsh)  RC_FILE="$HOME/.zshrc" ;;
+  */bash) RC_FILE="$HOME/.bash_profile" ;;
+  *)      RC_FILE="" ;;
+esac
+
+if [ -n "$RC_FILE" ] && ! grep -qF "$ALIAS_LINE" "$RC_FILE" 2>/dev/null; then
+  printf '\n# local-services\n%s\n' "$ALIAS_LINE" >> "$RC_FILE"
+  echo "Added supervisorctl alias to $RC_FILE"
+  echo "Run: source $RC_FILE"
+elif [ -n "$RC_FILE" ]; then
+  echo "supervisorctl alias already present in $RC_FILE"
+else
+  echo "Unknown shell. Add this alias manually:"
+  echo "  $ALIAS_LINE"
+fi
+
+# 7. Generate conf.d files from templates
 DEFAULT_SERVICE_DIR="$HOME/Documents/all_code/bookmark-content-processor"
 echo ""
 echo "Where is bookmark-content-processor checked out?"
@@ -71,9 +97,10 @@ if [ ! -d "$SERVICE_DIR" ]; then
   exit 1
 fi
 
-sed "s|{{SERVICE_DIR}}|$SERVICE_DIR|g" \
-  "$REPO_DIR/conf.d/bookmark-processor.conf.template" \
-  > "$REPO_DIR/conf.d/bookmark-processor.conf"
+sed -e "s|{{SERVICE_DIR}}|$SERVICE_DIR|g" \
+    -e "s|{{UV_BIN}}|$UV_BIN|g" \
+    "$REPO_DIR/conf.d/bookmark-processor.conf.template" \
+    > "$REPO_DIR/conf.d/bookmark-processor.conf"
 echo "Generated conf.d/bookmark-processor.conf"
 
 echo ""
