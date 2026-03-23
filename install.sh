@@ -57,10 +57,11 @@ EOF
 echo "Generated plist: $PLIST_DEST"
 
 # 5. Load (or reload) the launchd agent
-if launchctl list | grep -q "$PLIST_LABEL"; then
-  launchctl unload "$PLIST_DEST"
+GUI_TARGET="gui/$(id -u)"
+if launchctl print "$GUI_TARGET/$PLIST_LABEL" &>/dev/null 2>&1; then
+  launchctl bootout "$GUI_TARGET" "$PLIST_DEST"
 fi
-launchctl load "$PLIST_DEST"
+launchctl bootstrap "$GUI_TARGET" "$PLIST_DEST"
 echo "Loaded launchd agent: $PLIST_LABEL"
 
 # 6. Add supervisorctl alias to shell rc file
