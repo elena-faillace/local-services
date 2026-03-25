@@ -84,25 +84,39 @@ else
 fi
 
 # 7. Generate conf.d files from templates
-DEFAULT_SERVICE_DIR="$HOME/Documents/all_code/bookmark-content-processor"
-echo ""
-echo "Where is bookmark-content-processor checked out?"
-echo "Press Enter to accept the default: $DEFAULT_SERVICE_DIR"
-read -r -p "Path: " SERVICE_DIR
-SERVICE_DIR="${SERVICE_DIR:-$DEFAULT_SERVICE_DIR}"
+for TEMPLATE in "$REPO_DIR/conf.d/"*.conf.template; do
+  BASENAME="$(basename "$TEMPLATE" .conf.template)"
+  VARS_FILE="$REPO_DIR/conf.d/$BASENAME.conf.vars"
+  OUT="$REPO_DIR/conf.d/$BASENAME.conf"
 
-if [ ! -d "$SERVICE_DIR" ]; then
-  echo "Error: directory not found: $SERVICE_DIR"
-  echo "Supervisor is running but bookmark-processor is not configured."
-  echo "Re-run this script once the repo is cloned to finish setup."
-  exit 1
-fi
+  echo ""
+  echo "Configuring $BASENAME..."
 
-sed -e "s|{{SERVICE_DIR}}|$SERVICE_DIR|g" \
-    -e "s|{{UV_BIN}}|$UV_BIN|g" \
-    "$REPO_DIR/conf.d/bookmark-processor.conf.template" \
-    > "$REPO_DIR/conf.d/bookmark-processor.conf"
-echo "Generated conf.d/bookmark-processor.conf"
+  # Start sed args with system-resolved variables
+  SED_ARGS=(-e "s|{{UV_BIN}}|$UV_BIN|g" -e "s|{{REPO_DIR}}|$REPO_DIR|g")
+
+  # Prompt for each user variable defined in the .vars file
+  if [ -f "$VARS_FILE" ]; then
+    while IFS='|' read -r VARNAME PROMPT DEFAULT; do
+      # Expand $HOME in default value
+      DEFAULT="${DEFAULT/\$HOME/$HOME}"
+      echo "$PROMPT"
+      echo "Press Enter to accept the default: $DEFAULT"
+      read -r -p "$VARNAME: " VALUE
+      VALUE="${VALUE:-$DEFAULT}"
+      if [ ! -d "$VALUE" ]; then
+        echo "Error: directory not found: $VALUE"
+        echo "Supervisor is running but $BASENAME is not configured."
+        echo "Re-run this script once the repo is cloned to finish setup."
+        exit 1
+      fi
+      SED_ARGS+=(-e "s|{{$VARNAME}}|$VALUE|g")
+    done < "$VARS_FILE"
+  fi
+
+  sed "${SED_ARGS[@]}" "$TEMPLATE" > "$OUT"
+  echo "Generated conf.d/$BASENAME.conf"
+done
 
 echo ""
 echo "Done. Check service status with: supervisorctl status"
