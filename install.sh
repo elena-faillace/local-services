@@ -138,7 +138,41 @@ for TEMPLATE in "$REPO_DIR/conf.d/"*.conf.template; do
   echo "Generated conf.d/$BASENAME.conf"
 done
 
-# 8. Optionally launch menu bar app at login
+# 8. Generate LocalServices.app in /Applications
+APP_BUNDLE="/Applications/LocalServices.app"
+mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources"
+cp "$REPO_DIR/menubar/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
+
+cat > "$APP_BUNDLE/Contents/Info.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key>
+  <string>LocalServices</string>
+  <key>CFBundleIdentifier</key>
+  <string>com.local-services.menubar</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
+  <key>CFBundleExecutable</key>
+  <string>launch</string>
+  <key>CFBundleVersion</key>
+  <string>1.0</string>
+  <key>LSUIElement</key>
+  <true/>
+</dict>
+</plist>
+EOF
+
+cat > "$APP_BUNDLE/Contents/MacOS/launch" <<EOF
+#!/usr/bin/env bash
+exec "$UV_BIN" run --python "$BREW_PYTHON" "$REPO_DIR/menubar/app.py"
+EOF
+chmod +x "$APP_BUNDLE/Contents/MacOS/launch"
+echo "Created /Applications/LocalServices.app"
+
+# 9. Optionally launch menu bar app at login
 MENUBAR_PLIST_LABEL="com.local-services.menubar"
 MENUBAR_PLIST_DEST="$HOME/Library/LaunchAgents/$MENUBAR_PLIST_LABEL.plist"
 

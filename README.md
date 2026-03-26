@@ -1,92 +1,100 @@
 # local-services
 
-Process manager config for local development servers. Uses [Supervisor](http://supervisord.org/) to manage all services; a single launchd entry boots Supervisor at login.
-
-## Structure
-
-```
-local-services/
-├── supervisord.conf                        # Main supervisord daemon config
-├── conf.d/
-│   ├── bookmark-processor.conf.template   # Supervisor config template
-│   ├── bookmark-processor.conf.vars       # Prompts and defaults for the template
-│   └── bookmark-processor.conf            # Generated — gitignored, not committed
-├── menubar/
-│   └── app.py                             # macOS menu bar app (Python + rumps)
-├── install.sh                              # One-time setup script
-└── README.md
-```
-
-Each service in `conf.d/` is defined by two committed files:
-
-- `<name>.conf.template` — Supervisor program config using `{{VARNAME}}` placeholders
-- `<name>.conf.vars` — one line per user-supplied variable: `VARNAME|Prompt text|default value`
-
-`install.sh` loops over all templates, prompts for any variables declared in the `.vars` file, and generates the final `<name>.conf`. The generated `.conf` files contain local paths and are gitignored.
+Process manager for local development services on macOS. Uses [Supervisor](http://supervisord.org/) under the hood — a single launchd agent boots Supervisor at login and it manages everything defined in `conf.d/`. Comes with a menu bar app for quick status checks and start/stop/restart without opening a terminal.
 
 ## One-time setup
 
 ### 1. Install dependencies
 
 ```bash
-brew install supervisor uv
+brew install supervisor uv python@3.12
 ```
+
+> **Why `python@3.12`?** The menu bar app uses macOS AppKit APIs which require a Homebrew "framework" Python. The Python bundled with `uv` does not work for GUI apps.
 
 ### 2. Run the install script
 
 ```bash
-cd /path/to/local-services
-chmod +x install.sh
 ./install.sh
 ```
 
-This will:
-- Verify `supervisord` and `uv` are installed
-- Create log and socket directories
-- Generate `~/Library/LaunchAgents/com.local-services.plist` with your actual paths and load it (Supervisor starts now and auto-starts at every login)
-- Add a `supervisorctl` alias to your shell rc file (`.zshrc` or `.bash_profile`) so it uses this repo's config automatically
-- Loop over all `conf.d/*.conf.template` files, prompt for each service's variables (as declared in the companion `.vars` file), and generate the corresponding `conf.d/*.conf`
-- Generate `~/Desktop/LocalServices.app` — a double-clickable app bundle that launches the menu bar UI
-- Optionally register the menu bar app to launch at login
+The script will:
+
+1. Verify `supervisord`, `uv`, and a Homebrew framework Python are installed
+2. Create log and socket directories (`~/Library/Logs/supervisor/`, `~/.supervisor/`)
+3. Generate and load a launchd plist — Supervisor starts immediately and auto-starts at every login
+4. Add a `supervisorctl` alias to your `.zshrc` (or `.bash_profile`)
+5. Loop over all `conf.d/*.conf.template` files, prompt you for each service's variables, and generate the corresponding `.conf` files
+6. Generate `/Applications/LocalServices.app` — a double-clickable app to launch the menu bar UI
+7. Optionally register the menu bar app to launch at login
 
 ### 3. Reload your shell
 
 ```bash
-source ~/.zshrc   # or ~/.bash_profile if using bash
+source ~/.zshrc   # or ~/.bash_profile
 ```
 
-### 4. Verify everything is running
+### 4. Verify
 
 ```bash
 supervisorctl status
 ```
 
-You should see `bookmark-processor` with status `RUNNING`.
+You should see your services with status `RUNNING`.
 
 ---
 
-## Day-to-day usage
+## Menu bar app
+
+The menu bar app shows the status of all services at a glance and lets you control them without a terminal.
+
+### Launching it
+
+**Option A — Double-click** `/Applications/LocalServices.app` (or keep it in the Dock).
+
+**Option B — From terminal** (stays attached):
 
 ```bash
-# Check status of all services
-supervisorctl status
+uv run --python /opt/homebrew/bin/python3 menubar/app.py
+```
 
-# Start a service
-supervisorctl start bookmark-processor
+**Option C — From terminal, detached** (survives closing the terminal window):
 
-# Stop a service (does not restart automatically until you start it again)
-supervisorctl stop bookmark-processor
+```bash
+menubar/start.sh
+```
 
-# Restart a service (stop + start in one command)
-supervisorctl restart bookmark-processor
+### What the icon means
 
-# Send a signal to a process (e.g. SIGINT to trigger a graceful shutdown)
-supervisorctl signal INT bookmark-processor
+| Icon | Meaning |
+|------|---------|
+| `●` | All services running |
+| `◐` | Some services running |
+| `○` | All services stopped |
+| `!` | supervisord is not reachable |
 
-# Stop all services at once
-supervisorctl stop all
+### What you can do from the menu
 
-# View live stdout/stderr logs
+- **Click a service** → submenu with Start / Stop / Restart
+- **Reload Config** → picks up new or changed `.conf` files (same as `supervisorctl reread && update`)
+- **View Logs** → opens a `tail -f` in Terminal for any service's stdout, stderr, or supervisord itself
+- **Launch at Login** → toggles a launchd plist so the menu bar app starts automatically at login (shows `✓` when active)
+- **Quit** → closes the menu bar app (services keep running)
+
+---
+
+## Day-to-day usage (terminal)
+
+If you prefer the command line over the menu bar app:
+
+```bash
+supervisorctl status                        # check all services
+supervisorctl start bookmark-processor      # start one
+supervisorctl stop bookmark-processor       # stop one
+supervisorctl restart bookmark-processor    # restart one
+supervisorctl stop all                      # stop everything
+
+# Live logs
 tail -f ~/Library/Logs/supervisor/bookmark-processor.log
 tail -f ~/Library/Logs/supervisor/bookmark-processor.error.log
 ```
@@ -95,43 +103,45 @@ tail -f ~/Library/Logs/supervisor/bookmark-processor.error.log
 
 ## Adding a new service
 
-1. Create `conf.d/my-app.conf.template` — a standard Supervisor `[program:...]` config, using `{{VARNAME}}` for any paths that differ per machine. `{{UV_BIN}}` and `{{REPO_DIR}}` are always available for free.
-2. Create `conf.d/my-app.conf.vars` — one line per variable you used:
+1. Create `conf.d/my-app.conf.template` — a standard Supervisor `[program:...]` config. Use `{{VARNAME}}` for any paths that differ per machine. Two placeholders are always available for free:
+   - `{{UV_BIN}}` — resolved to the path of `uv`
+   - `{{REPO_DIR}}` — resolved to the path of this repo
+
+2. Create `conf.d/my-app.conf.vars` — one line per variable:
 
    ```text
    VARNAME|Human-readable prompt|/default/path
    ```
 
-3. Re-run `./install.sh` to generate the `.conf` file, **or** fill in the values manually and drop the file into `conf.d/`.
-4. Pick it up without restarting Supervisor:
+3. Re-run `./install.sh` to generate the `.conf`, or fill in the values manually.
 
-```bash
-supervisorctl reread && supervisorctl update
-```
+4. If Supervisor is already running, pick it up without restarting:
 
-No new launchd plists required.
+   ```bash
+   supervisorctl reread && supervisorctl update
+   ```
 
-## Menu bar app
-
-`menubar/app.py` is a macOS menu bar app that shows the status of all supervisord-managed services and lets you start, stop, and restart them without touching the terminal.
-
-`install.sh` generates `~/Desktop/LocalServices.app` — double-click it (or drag it to the Dock) to launch the app. You can also run it directly:
-
-```bash
-uv run --python /opt/homebrew/bin/python3 menubar/app.py
-```
-
-The icon in the menu bar reflects overall status: `●` all running, `◐` partial, `○` all stopped, `!` supervisord unreachable.
-
-Clicking a service shows its state and offers Start/Stop/Restart actions. **View Logs** opens a live `tail -f` in Terminal for any service's stdout, stderr, or the supervisord log itself.
-
----
+   Or click **Reload Config** in the menu bar app.
 
 ## Removing a service
 
-1. Delete its `conf.d/*.conf` file
-2. Run:
+1. Delete its `conf.d/<name>.conf` file (and optionally the `.conf.template` + `.conf.vars`)
+2. Run `supervisorctl reread && supervisorctl update` or click **Reload Config** in the menu bar app
 
-```bash
-supervisorctl reread && supervisorctl update
+---
+
+## Structure
+
+```
+local-services/
+├── supervisord.conf                        # Daemon config — includes conf.d/*.conf
+├── conf.d/
+│   ├── <name>.conf.template               # Supervisor program config (committed)
+│   ├── <name>.conf.vars                   # Variable prompts and defaults (committed)
+│   └── <name>.conf                        # Generated by install.sh (gitignored)
+├── menubar/
+│   ├── app.py                             # Menu bar app (Python + rumps)
+│   └── start.sh                           # Detached launcher
+├── install.sh                              # One-time setup script
+└── README.md
 ```

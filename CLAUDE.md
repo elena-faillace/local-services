@@ -42,9 +42,25 @@ This means any `.conf` dropped into `conf.d/` is automatically picked up by Supe
 
 ### menubar/app.py
 
-A Python + [rumps](https://github.com/jaredks/rumps) macOS menu bar app. Talks to supervisord via XML-RPC over the Unix socket using a custom stdlib transport (`xmlrpc.client` + `http.client` + `socket.AF_UNIX`) — no additional deps beyond `rumps`. Polls every 5 seconds via `@rumps.timer`. Run with `uv run menubar/app.py`.
+A Python + [rumps](https://github.com/jaredks/rumps) macOS menu bar app. Talks to supervisord via XML-RPC over the Unix socket using a custom stdlib transport (`xmlrpc.client` + `http.client` + `socket.AF_UNIX`) — no additional deps beyond `rumps`. Polls every 5 seconds via `@rumps.timer`.
 
-`install.sh` also generates `~/Desktop/LocalServices.app` — a minimal shell-script `.app` bundle wrapping `uv run menubar/app.py`, so it can be double-clicked or placed in the Dock.
+**Important: requires a Homebrew framework Python** — uv's managed Python is not linked against `Python.framework`, so macOS silently refuses to register a menu bar icon. `install.sh` auto-detects a suitable Homebrew Python (`otool -L` check for `Python.framework`). Run manually with:
+
+```bash
+uv run --python /opt/homebrew/bin/python3 menubar/app.py
+```
+
+Or use the detached launcher (survives terminal close):
+
+```bash
+menubar/start.sh
+```
+
+### /Applications/LocalServices.app
+
+`install.sh` generates a minimal `.app` bundle at `/Applications/LocalServices.app`. Double-clicking it launches the menu bar app. The bundle's launch script uses `exec uv run --python <BREW_PYTHON> menubar/app.py` — the command must be inlined directly; macOS blocks `exec` of external scripts from `.app` bundles ("Operation not permitted").
+
+The app includes a **Launch at Login** menu item that toggles a launchd plist at `~/Library/LaunchAgents/com.local-services.menubar.plist`. A PID-file lock (`~/.supervisor/menubar.pid`) prevents duplicate instances — stale PIDs from crashed processes are auto-detected and overwritten.
 
 ### Adding a new service
 

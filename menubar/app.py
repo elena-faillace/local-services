@@ -8,7 +8,6 @@ macOS menu bar app for supervisord process management.
 Run with: uv run menubar/app.py
 """
 
-import fcntl
 import http.client
 import os
 import socket
@@ -18,18 +17,98 @@ import xmlrpc.client
 
 import rumps
 
-LOCK_FILE = os.path.expanduser("~/.supervisor/menubar.lock")
+PID_FILE = os.path.expanduser("~/.supervisor/menubar.pid")
+PLIST_LABEL = "com.local-services.menubar"
+PLIST_PATH = os.path.expanduser(f"~/Library/LaunchAgents/{PLIST_LABEL}.plist")
+# Resolved at startup so the plist always points to the real repo
+_REPO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _find_brew_python():
+    for candidate in (
+        "/opt/homebrew/bin/python3.13",
+        "/opt/homebrew/bin/python3.12",
+        "/opt/homebrew/bin/python3",
+    ):
+        if os.path.isfile(candidate):
+            try:
+                out = subprocess.check_output(
+                    ["otool", "-L", candidate], stderr=subprocess.DEVNULL
+                ).decode()
+                if "Python.framework" in out:
+                    return candidate
+            except Exception:
+                pass
+    return None
+
+
+def _is_launch_at_login():
+    return os.path.isfile(PLIST_PATH)
+
+
+def _enable_launch_at_login():
+    brew_python = _find_brew_python()
+    uv_bin = subprocess.check_output(["which", "uv"], text=True).strip()
+    app_path = os.path.join(_REPO_DIR, "menubar", "app.py")
+    log = os.path.expanduser("~/Library/Logs/supervisor/menubar.log")
+    plist = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>{PLIST_LABEL}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>{uv_bin}</string>
+    <string>run</string>
+    <string>--python</string>
+    <string>{brew_python}</string>
+    <string>{app_path}</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><false/>
+  <key>StandardOutPath</key><string>{log}</string>
+  <key>StandardErrorPath</key><string>{log}</string>
+</dict>
+</plist>"""
+    with open(PLIST_PATH, "w") as f:
+        f.write(plist)
+    subprocess.run(
+        ["launchctl", "bootstrap", f"gui/{os.getuid()}", PLIST_PATH],
+        check=False,
+    )
+
+
+def _disable_launch_at_login():
+    subprocess.run(
+        ["launchctl", "bootout", f"gui/{os.getuid()}", PLIST_PATH],
+        check=False,
+    )
+    try:
+        os.remove(PLIST_PATH)
+    except FileNotFoundError:
+        pass
 
 
 def _acquire_lock():
-    """Exit immediately if another instance is already running."""
-    f = open(LOCK_FILE, "w")
+    """Exit if another instance is alive; otherwise write our PID."""
+    if os.path.exists(PID_FILE):
+        try:
+            pid = int(open(PID_FILE).read().strip())
+            os.kill(pid, 0)  # signal 0 = just check if process exists
+            print(f"LocalServices already running (pid {pid}).", file=sys.stderr)
+            sys.exit(0)
+        except (ProcessLookupError, ValueError, PermissionError):
+            pass  # stale PID — process is dead, overwrite and continue
+    with open(PID_FILE, "w") as f:
+        f.write(str(os.getpid()))
+
+
+def _release_lock():
     try:
-        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        print("LocalServices menu bar app is already running.", file=sys.stderr)
-        sys.exit(0)
-    return f  # keep reference so the lock is held for the process lifetime
+        os.remove(PID_FILE)
+    except FileNotFoundError:
+        pass
 
 SOCKET_PATH = os.path.expanduser("~/.supervisor/supervisor.sock")
 LOG_DIR = os.path.expanduser("~/Library/Logs/supervisor")
@@ -93,7 +172,11 @@ class LocalServicesApp(rumps.App):
     # It calls _do_refresh on each tick once run() starts the event loop.
     @rumps.timer(5)
     def _timer_tick(self, _):
-        self._do_refresh()
+        try:
+            self._do_refresh()
+        except Exception:
+            import traceback
+            traceback.print_exc()
 
     def _do_refresh(self):
         processes = _get_all_processes()
@@ -137,6 +220,8 @@ class LocalServicesApp(rumps.App):
             ))
             items.append(self._make_logs_menu(processes))
 
+        login_label = "✓ Launch at Login" if _is_launch_at_login() else "Launch at Login"
+        items.append(rumps.MenuItem(login_label, callback=self._toggle_launch_at_login))
         items.append(None)
         items.append(rumps.MenuItem("Quit", callback=rumps.quit_application))
         return items
@@ -212,6 +297,16 @@ class LocalServicesApp(rumps.App):
         except Exception as e:
             rumps.alert("Could not reload config", str(e))
 
+    def _toggle_launch_at_login(self, _):
+        if _is_launch_at_login():
+            _disable_launch_at_login()
+        else:
+            try:
+                _enable_launch_at_login()
+            except Exception as e:
+                rumps.alert("Could not enable Launch at Login", str(e))
+        self._do_refresh()
+
     def _restart_supervisord(self, _):
         subprocess.Popen([
             "launchctl", "kickstart", "-k",
@@ -220,5 +315,14 @@ class LocalServicesApp(rumps.App):
 
 
 if __name__ == "__main__":
-    _lock = _acquire_lock()
-    LocalServicesApp().run()
+    _acquire_lock()
+    log_path = os.path.expanduser("~/Library/Logs/supervisor/menubar.log")
+    sys.stdout = open(log_path, "a", buffering=1)
+    sys.stderr = sys.stdout
+    import traceback
+    try:
+        LocalServicesApp().run()
+    except Exception:
+        traceback.print_exc()
+    finally:
+        _release_lock()
