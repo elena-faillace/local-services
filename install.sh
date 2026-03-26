@@ -21,6 +21,26 @@ if ! command -v uv &>/dev/null; then
 fi
 UV_BIN="$(command -v uv)"
 
+# 2a. Find a Homebrew framework Python (required for macOS GUI / menu bar apps)
+BREW_PYTHON=""
+for candidate in \
+  /opt/homebrew/bin/python3.13 \
+  /opt/homebrew/bin/python3.12 \
+  /opt/homebrew/bin/python3; do
+  if [ -x "$candidate" ]; then
+    if otool -L "$candidate" 2>/dev/null | grep -q "Python.framework"; then
+      BREW_PYTHON="$candidate"
+      break
+    fi
+  fi
+done
+if [ -z "$BREW_PYTHON" ]; then
+  echo "Error: no Homebrew framework Python found."
+  echo "Install one with: brew install python@3.12"
+  exit 1
+fi
+echo "Using framework Python: $BREW_PYTHON"
+
 # 3. Create required directories
 mkdir -p "$HOME/Library/Logs/supervisor"
 mkdir -p "$HOME/.supervisor"
@@ -102,7 +122,7 @@ for TEMPLATE in "$REPO_DIR/conf.d/"*.conf.template; do
       DEFAULT="${DEFAULT/\$HOME/$HOME}"
       echo "$PROMPT"
       echo "Press Enter to accept the default: $DEFAULT"
-      read -r -p "$VARNAME: " VALUE
+      read -r -p "$VARNAME: " VALUE </dev/tty
       VALUE="${VALUE:-$DEFAULT}"
       if [ ! -d "$VALUE" ]; then
         echo "Error: directory not found: $VALUE"
@@ -117,6 +137,48 @@ for TEMPLATE in "$REPO_DIR/conf.d/"*.conf.template; do
   sed "${SED_ARGS[@]}" "$TEMPLATE" > "$OUT"
   echo "Generated conf.d/$BASENAME.conf"
 done
+
+# 8. Optionally launch menu bar app at login
+MENUBAR_PLIST_LABEL="com.local-services.menubar"
+MENUBAR_PLIST_DEST="$HOME/Library/LaunchAgents/$MENUBAR_PLIST_LABEL.plist"
+
+echo ""
+read -r -p "Launch the menu bar app automatically at login? [y/N] " AUTOLAUNCH
+if [[ "$AUTOLAUNCH" =~ ^[Yy]$ ]]; then
+  cat > "$MENUBAR_PLIST_DEST" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>$MENUBAR_PLIST_LABEL</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$UV_BIN</string>
+    <string>run</string>
+    <string>--python</string>
+    <string>$BREW_PYTHON</string>
+    <string>$REPO_DIR/menubar/app.py</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <false/>
+  <key>StandardOutPath</key>
+  <string>$HOME/Library/Logs/supervisor/menubar.log</string>
+  <key>StandardErrorPath</key>
+  <string>$HOME/Library/Logs/supervisor/menubar.error.log</string>
+</dict>
+</plist>
+EOF
+  GUI_TARGET="gui/$(id -u)"
+  if launchctl print "$GUI_TARGET/$MENUBAR_PLIST_LABEL" &>/dev/null 2>&1; then
+    launchctl bootout "$GUI_TARGET" "$MENUBAR_PLIST_DEST"
+  fi
+  launchctl bootstrap "$GUI_TARGET" "$MENUBAR_PLIST_DEST"
+  echo "Menu bar app will launch at login."
+fi
 
 echo ""
 echo "Done. Check service status with: supervisorctl status"

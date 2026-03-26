@@ -11,6 +11,8 @@ local-services/
 │   ├── bookmark-processor.conf.template   # Supervisor config template
 │   ├── bookmark-processor.conf.vars       # Prompts and defaults for the template
 │   └── bookmark-processor.conf            # Generated — gitignored, not committed
+├── menubar/
+│   └── app.py                             # macOS menu bar app (Python + rumps)
 ├── install.sh                              # One-time setup script
 └── README.md
 ```
@@ -44,6 +46,8 @@ This will:
 - Generate `~/Library/LaunchAgents/com.local-services.plist` with your actual paths and load it (Supervisor starts now and auto-starts at every login)
 - Add a `supervisorctl` alias to your shell rc file (`.zshrc` or `.bash_profile`) so it uses this repo's config automatically
 - Loop over all `conf.d/*.conf.template` files, prompt for each service's variables (as declared in the companion `.vars` file), and generate the corresponding `conf.d/*.conf`
+- Generate `~/Desktop/LocalServices.app` — a double-clickable app bundle that launches the menu bar UI
+- Optionally register the menu bar app to launch at login
 
 ### 3. Reload your shell
 
@@ -93,9 +97,11 @@ tail -f ~/Library/Logs/supervisor/bookmark-processor.error.log
 
 1. Create `conf.d/my-app.conf.template` — a standard Supervisor `[program:...]` config, using `{{VARNAME}}` for any paths that differ per machine. `{{UV_BIN}}` and `{{REPO_DIR}}` are always available for free.
 2. Create `conf.d/my-app.conf.vars` — one line per variable you used:
-   ```
+
+   ```text
    VARNAME|Human-readable prompt|/default/path
    ```
+
 3. Re-run `./install.sh` to generate the `.conf` file, **or** fill in the values manually and drop the file into `conf.d/`.
 4. Pick it up without restarting Supervisor:
 
@@ -104,6 +110,22 @@ supervisorctl reread && supervisorctl update
 ```
 
 No new launchd plists required.
+
+## Menu bar app
+
+`menubar/app.py` is a macOS menu bar app that shows the status of all supervisord-managed services and lets you start, stop, and restart them without touching the terminal.
+
+`install.sh` generates `~/Desktop/LocalServices.app` — double-click it (or drag it to the Dock) to launch the app. You can also run it directly:
+
+```bash
+uv run --python /opt/homebrew/bin/python3 menubar/app.py
+```
+
+The icon in the menu bar reflects overall status: `●` all running, `◐` partial, `○` all stopped, `!` supervisord unreachable.
+
+Clicking a service shows its state and offers Start/Stop/Restart actions. **View Logs** opens a live `tail -f` in Terminal for any service's stdout, stderr, or the supervisord log itself.
+
+---
 
 ## Removing a service
 
